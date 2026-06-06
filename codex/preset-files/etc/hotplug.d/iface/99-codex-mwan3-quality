@@ -1,0 +1,8 @@
+#!/bin/sh
+
+[ "$ACTION" = "ifup" ] || exit 0
+[ "$INTERFACE" = "wan" ] || [ "$INTERFACE" = "wan2" ] || exit 0
+
+/usr/bin/codex-mwan3-quality >/dev/null 2>&1 &
+
+exit 0

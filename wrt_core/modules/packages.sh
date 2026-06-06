@@ -2,7 +2,7 @@
 
 remove_unwanted_packages() {
     local luci_packages=(
-        "luci-app-passwall" "luci-app-ddns-go" "luci-app-rclone" "luci-app-ssr-plus"
+        "luci-app-passwall" "luci-app-ddns-go" "luci-app-rclone"
         "luci-app-vssr" "luci-app-daed" "luci-app-dae" "luci-app-alist" "luci-app-homeproxy"
         "luci-app-haproxy-tcp" "luci-app-openclash" "luci-app-mihomo" "luci-app-appfilter"
         "luci-app-msd_lite" "luci-app-unblockneteasemusic" "luci-app-adguardhome"
@@ -153,7 +153,7 @@ install_custom_feed() {
         v2dat adguardhome luci-app-adguardhome ddns-go \
         luci-app-ddns-go taskd luci-lib-xterm luci-lib-taskd luci-app-store quickstart \
         luci-app-quickstart luci-app-istorex luci-app-cloudflarespeedtest netdata luci-app-netdata \
-        lucky luci-app-lucky luci-app-openclash luci-app-homeproxy luci-app-amlogic \
+        lucky luci-app-lucky luci-app-ssr-plus luci-app-openclash luci-app-homeproxy luci-app-amlogic \
         oaf open-app-filter luci-app-oaf easytier luci-app-easytier \
         msd_lite luci-app-msd_lite cups luci-app-cupsd
     )
@@ -163,6 +163,15 @@ install_custom_feed() {
         luci-app-passwall nikki luci-app-nikki mihomo-meta
         open-app-filter luci-app-oaf lucky luci-app-lucky luci-app-easytier
     )
+
+    if [[ "${CODEX_MINIMAL_BUILD:-0}" == "1" ]]; then
+        base_custom_feed_packages=(
+            xray-core shadowsocksr-libev lucky luci-app-lucky luci-app-ssr-plus
+        )
+        required_feed_dirs=(
+            xray-core shadowsocksr-libev lucky luci-app-lucky luci-app-ssr-plus
+        )
+    fi
     local custom_feed_sources=()
     local missing_feed_dirs=()
     local source_entry
@@ -179,12 +188,18 @@ install_custom_feed() {
         base_custom_feed_packages+=(fullconenat)
     fi
 
-    custom_feed_sources=(
-        "kenzok8/small-package|https://github.com/kenzok8/small-package.git||${base_custom_feed_packages[*]}"
-        "sbwml/luci-app-mosdns|https://github.com/sbwml/luci-app-mosdns.git|v5|mosdns luci-app-mosdns"
-        "Openwrt-Passwall/openwrt-passwall|https://github.com/Openwrt-Passwall/openwrt-passwall.git|main|luci-app-passwall"
-        "nikkinikki-org/OpenWrt-nikki|https://github.com/nikkinikki-org/OpenWrt-nikki.git|main|nikki luci-app-nikki mihomo-meta"
-    )
+    if [[ "${CODEX_MINIMAL_BUILD:-0}" == "1" ]]; then
+        custom_feed_sources=(
+            "kenzok8/small-package|https://github.com/kenzok8/small-package.git||${base_custom_feed_packages[*]}"
+        )
+    else
+        custom_feed_sources=(
+            "kenzok8/small-package|https://github.com/kenzok8/small-package.git||${base_custom_feed_packages[*]}"
+            "sbwml/luci-app-mosdns|https://github.com/sbwml/luci-app-mosdns.git|v5|mosdns luci-app-mosdns"
+            "Openwrt-Passwall/openwrt-passwall|https://github.com/Openwrt-Passwall/openwrt-passwall.git|main|luci-app-passwall"
+            "nikkinikki-org/OpenWrt-nikki|https://github.com/nikkinikki-org/OpenWrt-nikki.git|main|nikki luci-app-nikki mihomo-meta"
+        )
+    fi
 
     feeds_path=$(get_feeds_path)
     custom_feed_name=$(get_custom_feed_name)
@@ -234,6 +249,10 @@ verify_custom_feed_installed_paths() {
 
     custom_feed_name=$(get_custom_feed_name)
     custom_feed_package_dir=$(get_custom_feed_package_dir)
+
+    if [[ "${CODEX_MINIMAL_BUILD:-0}" == "1" ]]; then
+        required_package_dirs=(xray-core shadowsocksr-libev lucky luci-app-lucky luci-app-ssr-plus)
+    fi
 
     collect_missing_directories "$custom_feed_package_dir" required_package_dirs missing_package_dirs
 

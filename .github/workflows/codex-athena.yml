@@ -1,0 +1,138 @@
+name: Codex Athena Firmware
+run-name: Athena ${{ inputs.model }} ${{ inputs.preset == 'true' && 'plain+preset' || 'plain' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Device model
+        required: true
+        type: choice
+        default: jdcloud_ipq60xx_immwrt
+        options:
+          - jdcloud_ipq60xx_immwrt
+      preset:
+        description: Also build preset firmware with dual-WAN config from secrets
+        required: true
+        type: choice
+        default: "true"
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: read
+
+env:
+  CODEX_MINIMAL_BUILD: "1"
+  FORCE_UNSAFE_CONFIGURE: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup build environment
+        run: |
+          sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
+          sudo apt-get update
+          sudo apt-get install -y dos2unix libfuse-dev jq
+          sudo apt-get autoremove --purge -y
+          sudo apt-get clean
+
+      - name: Set build metadata
+        run: |
+          sudo timedatectl set-timezone "Asia/Shanghai"
+          echo "BUILD_DATE=$(date +"%Y%m%d-%H%M%S")" >> "$GITHUB_ENV"
+          BUILD_SRC="$(awk -F= '/REPO_URL/ {print $2}' "./wrt_core/compilecfg/${{ inputs.model }}.ini")"
+          echo "BUILD_SRC=$BUILD_SRC" >> "$GITHUB_ENV"
+
+      - name: Pre clone
+        run: ./wrt_core/pre_clone_action.sh "${{ inputs.model }}"
+
+      - name: Cache OpenWrt build state
+        uses: actions/cache@v4
+        with:
+          path: |
+            ./action_build/.ccache
+            ./action_build/staging_dir
+            ./action_build/dl
+          key: athena-${{ runner.os }}-${{ inputs.model }}-${{ hashFiles('wrt_core/compilecfg/**', 'wrt_core/deconfig/**', 'wrt_core/modules/**', 'build.sh') }}
+          restore-keys: |
+            athena-${{ runner.os }}-${{ inputs.model }}-
+
+      - name: Refresh cache stamps
+        run: |
+          if [ -d "./action_build/staging_dir" ]; then
+            find "./action_build/staging_dir" -type d -name "stamp" -not -path "*target*" | while read -r dir; do
+              find "$dir" -type f -exec touch {} +
+            done
+          fi
+
+      - name: Build plain firmware
+        run: |
+          chmod +x build.sh wrt_core/*.sh wrt_core/modules/*.sh codex/*.sh
+          ./build.sh "${{ inputs.model }}"
+
+      - name: Collect plain firmware
+        run: |
+          mkdir -p firmware-plain
+          cp -av firmware/* firmware-plain/
+          find firmware-plain -maxdepth 1 -type f -printf '%f %s\n'
+
+      - name: Build preset firmware
+        if: ${{ inputs.preset == 'true' }}
+        env:
+          WAN1_USERNAME: ${{ secrets.WAN1_USERNAME }}
+          WAN1_PASSWORD: ${{ secrets.WAN1_PASSWORD }}
+          WAN2_USERNAME: ${{ secrets.WAN2_USERNAME }}
+          WAN2_PASSWORD: ${{ secrets.WAN2_PASSWORD }}
+        run: |
+          chmod +x codex/build-preset.sh
+          ./codex/build-preset.sh action_build firmware-plain firmware-preset
+
+      - name: Verify package manifest
+        run: |
+          echo "Required package check:"
+          manifest="$(find firmware-plain -name '*.manifest' | head -n 1)"
+          test -n "$manifest"
+          for pkg in mwan3 luci-app-mwan3 iptables-mod-ipopt kmod-ipt-ipopt lucky luci-app-lucky luci-app-ssr-plus xray-core; do
+            if grep -q "^$pkg " "$manifest"; then
+              echo "OK $pkg"
+            else
+              echo "MISSING $pkg" >&2
+              exit 1
+            fi
+          done
+
+      - name: Write build summary
+        run: |
+          {
+            echo "## Athena firmware"
+            echo
+            echo "- Model: \`${{ inputs.model }}\`"
+            echo "- Source: \`${BUILD_SRC}\`"
+            echo "- Minimal build: \`${CODEX_MINIMAL_BUILD}\`"
+            echo "- Plain files:"
+            find firmware-plain -maxdepth 1 -type f -printf '  - `%f` (%s bytes)\n'
+            if [ -d firmware-preset ]; then
+              echo "- Preset files:"
+              find firmware-preset -maxdepth 1 -type f -printf '  - `%f` (%s bytes)\n'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload plain firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: athena-plain-${{ env.BUILD_DATE }}
+          path: firmware-plain/*
+
+      - name: Upload preset firmware
+        if: ${{ inputs.preset == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: athena-preset-${{ env.BUILD_DATE }}
+          path: firmware-preset/*

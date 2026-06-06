@@ -1,0 +1,89 @@
+#!/bin/sh
+
+LOCK="/var/run/codex-mwan3-quality.lock"
+STATE="/tmp/codex-mwan3-quality.policy"
+TAG="codex-mwan3-quality"
+TARGETS="223.5.5.5 119.29.29.29 1.1.1.1"
+MARGIN_MS=15
+
+iface_dev() {
+	ifstatus "$1" 2>/dev/null | jsonfilter -e '@.l3_device' 2>/dev/null
+}
+
+iface_up() {
+	[ "$(ifstatus "$1" 2>/dev/null | jsonfilter -e '@.up' 2>/dev/null)" = "true" ]
+}
+
+best_latency() {
+	local dev="$1"
+	local best=""
+	local out avg
+
+	[ -n "$dev" ] || return 1
+	ip link show "$dev" >/dev/null 2>&1 || return 1
+
+	for target in $TARGETS; do
+		out="$(ping -I "$dev" -c 2 -W 2 "$target" 2>/dev/null)"
+		avg="$(echo "$out" | awk -F'/' '/round-trip|rtt/ {print int($5)}')"
+		if [ -n "$avg" ]; then
+			if [ -z "$best" ] || [ "$avg" -lt "$best" ]; then
+				best="$avg"
+			fi
+		fi
+	done
+
+	[ -n "$best" ] || return 1
+	echo "$best"
+	return 0
+}
+
+set_policy() {
+	local policy="$1"
+	local current
+
+	current="$(cat "$STATE" 2>/dev/null)"
+	[ "$current" = "$policy" ] && return 0
+
+	uci set mwan3.default_rule_v4.use_policy="$policy"
+	uci commit mwan3
+	/etc/init.d/mwan3 restart >/dev/null 2>&1
+	echo "$policy" > "$STATE"
+	logger -t "$TAG" "switched default policy to $policy"
+}
+
+(
+	flock -n 9 || exit 0
+
+	wan_policy="balanced"
+	wan_dev="$(iface_dev wan)"
+	wan2_dev="$(iface_dev wan2)"
+
+	if iface_up wan; then
+		wan_ms="$(best_latency "$wan_dev")"
+	fi
+	if iface_up wan2; then
+		wan2_ms="$(best_latency "$wan2_dev")"
+	fi
+
+	if [ -n "$wan_ms" ] && [ -n "$wan2_ms" ]; then
+		if [ $((wan_ms + MARGIN_MS)) -lt "$wan2_ms" ]; then
+			wan_policy="wan_wan2"
+		elif [ $((wan2_ms + MARGIN_MS)) -lt "$wan_ms" ]; then
+			wan_policy="wan2_wan"
+		else
+			wan_policy="balanced"
+		fi
+	elif [ -n "$wan_ms" ]; then
+		wan_policy="wan_only"
+	elif [ -n "$wan2_ms" ]; then
+		wan_policy="wan2_only"
+	else
+		logger -t "$TAG" "no usable WAN latency result"
+		exit 0
+	fi
+
+	logger -t "$TAG" "wan=${wan_ms:-down}ms wan2=${wan2_ms:-down}ms selected=$wan_policy"
+	set_policy "$wan_policy"
+) 9>"$LOCK"
+
+exit 0

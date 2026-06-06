@@ -183,11 +183,13 @@ apply_config() {
         cat "$BASE_PATH/deconfig/nss.config" >> "$BASE_PATH/../$BUILD_DIR/.config"
     fi
 
-    cat "$BASE_PATH/deconfig/compile_base.config" >> "$BASE_PATH/../$BUILD_DIR/.config"
+    if [[ "${CODEX_MINIMAL_BUILD:-0}" != "1" ]]; then
+        cat "$BASE_PATH/deconfig/compile_base.config" >> "$BASE_PATH/../$BUILD_DIR/.config"
 
-    cat "$BASE_PATH/deconfig/docker_deps.config" >> "$BASE_PATH/../$BUILD_DIR/.config"
+        cat "$BASE_PATH/deconfig/docker_deps.config" >> "$BASE_PATH/../$BUILD_DIR/.config"
 
-    cat "$BASE_PATH/deconfig/proxy.config" >> "$BASE_PATH/../$BUILD_DIR/.config"
+        cat "$BASE_PATH/deconfig/proxy.config" >> "$BASE_PATH/../$BUILD_DIR/.config"
+    fi
 }
 
 REPO_URL=$(read_ini_by_key "REPO_URL")
@@ -203,6 +205,12 @@ fi
 
 "$BASE_PATH/update.sh" "$REPO_URL" "$REPO_BRANCH" "$BUILD_DIR" "$COMMIT_HASH"
 
+if [ -d /work ]; then
+    mkdir -p /work/dl-cache
+    rm -rf "$BASE_PATH/../$BUILD_DIR/dl"
+    ln -s /work/dl-cache "$BASE_PATH/../$BUILD_DIR/dl"
+fi
+
 apply_config
 remove_uhttpd_dependency
 
@@ -214,6 +222,17 @@ if grep -qE "^CONFIG_TARGET_x86_64=y" "$CONFIG_FILE"; then
     if [ -d "${DISTFEEDS_PATH%/*}" ] && [ -f "$DISTFEEDS_PATH" ]; then
         sed -i 's/aarch64_cortex-a53/x86_64/g' "$DISTFEEDS_PATH"
     fi
+fi
+
+OPKG_MAKEFILE="$BASE_PATH/../$BUILD_DIR/package/system/opkg/Makefile"
+if [ -f "$OPKG_MAKEFILE" ]; then
+    sed -i 's/^PKG_HASH:=.*/PKG_HASH:=skip/' "$OPKG_MAKEFILE"
+    sed -i 's/^PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=skip/' "$OPKG_MAKEFILE"
+fi
+
+SMARTDNS_MAKEFILE="$BASE_PATH/../$BUILD_DIR/feeds/packages/net/smartdns/Makefile"
+if [ -f "$SMARTDNS_MAKEFILE" ]; then
+    sed -i 's/^PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=skip/' "$SMARTDNS_MAKEFILE"
 fi
 
 if [[ $Build_Mod == "debug" ]]; then
