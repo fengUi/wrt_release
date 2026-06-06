@@ -2,6 +2,14 @@ name: Codex Athena Firmware
 run-name: Athena ${{ inputs.model }} ${{ inputs.preset == 'true' && 'plain+preset' || 'plain' }}
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/codex-athena.yml"
+      - "build.sh"
+      - "codex/**"
+      - "wrt_core/**"
   workflow_dispatch:
     inputs:
       model:
@@ -84,7 +92,7 @@ jobs:
           find firmware-plain -maxdepth 1 -type f -printf '%f %s\n'
 
       - name: Build preset firmware
-        if: ${{ inputs.preset == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.preset == 'true' }}
         env:
           WAN1_USERNAME: ${{ secrets.WAN1_USERNAME }}
           WAN1_PASSWORD: ${{ secrets.WAN1_PASSWORD }}
@@ -131,7 +139,7 @@ jobs:
           path: firmware-plain/*
 
       - name: Upload preset firmware
-        if: ${{ inputs.preset == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.preset == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: athena-preset-${{ env.BUILD_DATE }}
