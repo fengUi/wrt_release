@@ -1,5 +1,5 @@
 name: Codex Athena Firmware
-run-name: Athena ${{ inputs.model }} ${{ inputs.preset == 'true' && 'plain+preset' || 'plain' }}
+run-name: Athena ${{ inputs.model || 'jdcloud_ipq60xx_immwrt' }} ${{ inputs.preset == 'true' && 'plain+preset' || 'plain' }}
 
 on:
   push:
@@ -34,6 +34,7 @@ permissions:
 env:
   CODEX_MINIMAL_BUILD: "1"
   FORCE_UNSAFE_CONFIGURE: "1"
+  BUILD_MODEL: ${{ inputs.model || 'jdcloud_ipq60xx_immwrt' }}
 
 jobs:
   build:
@@ -55,11 +56,11 @@ jobs:
         run: |
           sudo timedatectl set-timezone "Asia/Shanghai"
           echo "BUILD_DATE=$(date +"%Y%m%d-%H%M%S")" >> "$GITHUB_ENV"
-          BUILD_SRC="$(awk -F= '/REPO_URL/ {print $2}' "./wrt_core/compilecfg/${{ inputs.model }}.ini")"
+          BUILD_SRC="$(awk -F= '/REPO_URL/ {print $2}' "./wrt_core/compilecfg/${BUILD_MODEL}.ini")"
           echo "BUILD_SRC=$BUILD_SRC" >> "$GITHUB_ENV"
 
       - name: Pre clone
-        run: ./wrt_core/pre_clone_action.sh "${{ inputs.model }}"
+        run: ./wrt_core/pre_clone_action.sh "${BUILD_MODEL}"
 
       - name: Cache OpenWrt build state
         uses: actions/cache@v4
@@ -68,9 +69,9 @@ jobs:
             ./action_build/.ccache
             ./action_build/staging_dir
             ./action_build/dl
-          key: athena-${{ runner.os }}-${{ inputs.model }}-${{ hashFiles('wrt_core/compilecfg/**', 'wrt_core/deconfig/**', 'wrt_core/modules/**', 'build.sh') }}
+          key: athena-${{ runner.os }}-${{ env.BUILD_MODEL }}-${{ hashFiles('wrt_core/compilecfg/**', 'wrt_core/deconfig/**', 'wrt_core/modules/**', 'build.sh') }}
           restore-keys: |
-            athena-${{ runner.os }}-${{ inputs.model }}-
+            athena-${{ runner.os }}-${{ env.BUILD_MODEL }}-
 
       - name: Refresh cache stamps
         run: |
@@ -83,7 +84,7 @@ jobs:
       - name: Build plain firmware
         run: |
           chmod +x build.sh wrt_core/*.sh wrt_core/modules/*.sh codex/*.sh
-          ./build.sh "${{ inputs.model }}"
+          ./build.sh "${BUILD_MODEL}"
 
       - name: Collect plain firmware
         run: |
@@ -121,7 +122,7 @@ jobs:
           {
             echo "## Athena firmware"
             echo
-            echo "- Model: \`${{ inputs.model }}\`"
+            echo "- Model: \`${BUILD_MODEL}\`"
             echo "- Source: \`${BUILD_SRC}\`"
             echo "- Minimal build: \`${CODEX_MINIMAL_BUILD}\`"
             echo "- Plain files:"
